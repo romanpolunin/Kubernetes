@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-system
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cluster-services-ingress
+  namespace: ingress-system
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # Static response for root path
+    nginx.ingress.kubernetes.io/default-backend: "false"
+    # Custom server configuration with static response for root and redirects for /default
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location /welcome {
+        default_type text/html;
+        return 200 '<html><head><title>Kubernetes Local Cluster</title><style>body{font-family:Arial,sans-serif;margin:40px;line-height:1.6;}</style></head><body><h1>Kubernetes Local Cluster</h1><p>Welcome to your local cluster.</p><p>Available services:<ul><li>/ceph - Ceph Dashboard (when provisioned)</li></ul></p></body></html>';
+      }
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: cluster.local  # Change this to your desired hostname
+    http:

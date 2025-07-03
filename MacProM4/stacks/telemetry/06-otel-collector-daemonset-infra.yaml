@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector-infra
+  namespace: telemetry
+  labels:
+    app: otel-collector-infra
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector-infra
+  template:
+    metadata:
+      labels:
+        app: otel-collector-infra
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8889"
+    spec:
+      serviceAccountName: otel-collector-infra
+      containers:
+      - name: otel-collector-infra
+        image: otel/opentelemetry-collector-contrib:0.128.0
+        env:
+        - name: KUBE_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: KUBE_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        args:
+        - "--config=/etc/otel-collector.yaml"
+        ports:
+        - containerPort: 8889
+          name: prometheus
+        volumeMounts:
+        - name: otel-collector-config
+          mountPath: /etc/otel-collector.yaml
+          subPath: collector-config.yaml
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+        - name: varlibcontainerd
+          mountPath: /run/containerd
+          readOnly: true
+        - name: containerlog
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: hostfs
+          mountPath: /hostfs
+          readOnly: true
+        resources:
+          limits:
+            cpu: 500m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 30Mi
+      volumes:
+      - name: otel-collector-config
+        configMap:
+          name: collector-config-infra
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibcontainerd
+        hostPath:
+          path: /run/containerd
+      - name: containerlog
+        hostPath:
+          path: /var/log/pods
+      - name: hostfs
+        hostPath: 
+          path: /
+          type: Directory
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+        operator: Exists

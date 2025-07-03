@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector-cluster
+  namespace: telemetry
+  labels:
+    app: otel-collector-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector-cluster
+  template:
+    metadata:
+      labels:
+        app: otel-collector-cluster
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8889"
+    spec:
+      serviceAccountName: otel-collector-cluster
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.128.0
+        args:
+        - "--config=/etc/otel-collector.yaml"
+        ports:
+        - containerPort: 8889
+          name: prometheus
+        volumeMounts:
+        - name: otel-collector-config
+          mountPath: /etc/otel-collector.yaml
+          subPath: collector-config.yaml
+        resources:
+          limits:
+            cpu: 500m
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 50Mi
+      volumes:
+      - name: otel-collector-config
+        configMap:
+          name: collector-config-cluster

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcp-services
+  namespace: ingress-nginx
+data:
+  # Format: <external port>: "<namespace>/<service name>:<service port>[:<PROXY protocol>]"
+  # Expose otel-collector gRPC endpoint
+  "4317": "telemetry/otel-collector-apps:4317"
+  # Expose otel-collector HTTP endpoint
+  "4318": "telemetry/otel-collector-apps:4318"

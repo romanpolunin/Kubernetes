@@ -1,0 +1,595 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector-config-apps
+  namespace: telemetry
+data:
+  collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    exporters:
+
+      otlphttp/loki:
+        endpoint: "http://loki:3100/otlp"
+        tls:
+          insecure: true
+
+      otlp/tempo:
+        endpoint: "tempo:14317"
+        tls:
+          insecure: true
+        sending_queue:
+          num_consumers: 4
+          queue_size: 1000
+        retry_on_failure:
+          enabled: true
+
+      prometheus:
+        endpoint: '0.0.0.0:8889'
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    processors:
+      batch:
+      memory_limiter:
+        limit_mib: 100
+        spike_limit_mib: 50
+        check_interval: 5s
+
+      attributes/empty:
+        actions:
+          - key: "empty"
+            # match empty string
+            pattern: ^\s*$
+            action: delete
+
+      k8sattributes:
+        auth_type: 'serviceAccount'
+        extract:
+          metadata: # extracted from the pod
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.pod.start_time
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.node.name
+          # annotations:
+          #   # Extracts the value of a pod annotation with key `annotation-one` and inserts it as a resource attribute with key `a1`
+          #   - tag_name: a1
+          #     key: annotation-one
+          #     from: pod
+          #   # Extracts the value of a namespaces annotation with key `annotation-two` with regexp and inserts it as a resource  with key `a2`
+          #   - tag_name: a2
+          #     key: annotation-two
+          #     regex: field=(?P<value>.+)
+          #     from: namespace
+          # labels:
+          #   # Extracts the value of a namespaces label with key `label1` and inserts it as a resource attribute with key `l1`
+          #   - tag_name: l1
+          #     key: label1
+          #     from: namespace
+          #   # Extracts the value of a pod label with key `label2` with regexp and inserts it as a resource attribute with key `l2`
+          #   - tag_name: l2
+          #     key: label2
+          #     regex: field=(?P<value>.+)
+          #     from: pod
+        pod_association: # How to associate the data to a pod (order matters)
+          - sources: # First try to use the value of the resource attribute k8s.pod.ip
+            - from: resource_attribute
+              name: k8s.pod.ip
+          - sources: # Then try to use the value of the resource attribute k8s.pod.uid
+            - from: resource_attribute
+              name: k8s.pod.uid
+          - sources: # If neither of those work, use the request's connection to get the pod IP.
+            - from: connection
+
+      # NewRelic wants to have cumulative sums shipped as monotonic, delta sums
+      cumulativetodelta:
+
+      transform/newrelic_trace:
+        trace_statements:
+        - context: span
+          statements:
+          - truncate_all(attributes, 4095)
+          - truncate_all(resource.attributes, 4095)
+
+      transform/newrelic_logs:
+        log_statements:
+        - context: log
+          statements:
+          - truncate_all(attributes, 4095)
+          - truncate_all(resource.attributes, 4095)
+
+    service:
+      pipelines:
+
+        traces/apps:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, batch]
+          exporters: [otlp/tempo]
+
+        metrics/apps:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes]
+          exporters: [prometheus]
+
+        logs/apps:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, attributes/empty, batch]
+          exporters: [otlphttp/loki]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector-config-infra
+  namespace: telemetry
+data:
+  collector-config.yaml: |
+    receivers:
+      kubeletstats:
+        collection_interval: 10s
+        auth_type: 'serviceAccount'
+        endpoint: '${env:KUBE_NODE_IP}:10250'
+        insecure_skip_verify: true
+        metric_groups:
+          - node
+          - pod
+          - container
+
+      hostmetrics:
+        collection_interval: 10s
+        scrapers:
+          cpu:
+          memory:
+
+      hostmetrics/disk:
+        collection_interval: 1m
+        root_path: /hostfs
+        scrapers:
+          disk:
+          filesystem:
+          
+    exporters:
+
+      otlphttp/loki:
+        endpoint: "http://loki:3100/otlp"
+        tls:
+          insecure: true
+
+      prometheus:
+        endpoint: '0.0.0.0:8889'
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    processors:
+      batch:
+      memory_limiter:
+        limit_mib: 100
+        spike_limit_mib: 50
+        check_interval: 5s
+
+      attributes/empty:
+        actions:
+          - key: "empty"
+            # match empty string
+            pattern: ^\s*$
+            action: delete
+
+      k8sattributes:
+        auth_type: 'serviceAccount'
+        extract:
+          metadata: # extracted from the pod
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.pod.start_time
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.node.name
+          # annotations:
+          #   # Extracts the value of a pod annotation with key `annotation-one` and inserts it as a resource attribute with key `a1`
+          #   - tag_name: a1
+          #     key: annotation-one
+          #     from: pod
+          #   # Extracts the value of a namespaces annotation with key `annotation-two` with regexp and inserts it as a resource  with key `a2`
+          #   - tag_name: a2
+          #     key: annotation-two
+          #     regex: field=(?P<value>.+)
+          #     from: namespace
+          # labels:
+          #   # Extracts the value of a namespaces label with key `label1` and inserts it as a resource attribute with key `l1`
+          #   - tag_name: l1
+          #     key: label1
+          #     from: namespace
+          #   # Extracts the value of a pod label with key `label2` with regexp and inserts it as a resource attribute with key `l2`
+          #   - tag_name: l2
+          #     key: label2
+          #     regex: field=(?P<value>.+)
+          #     from: pod
+        pod_association: # How to associate the data to a pod (order matters)
+          - sources: # First try to use the value of the resource attribute k8s.pod.ip
+            - from: resource_attribute
+              name: k8s.pod.ip
+          - sources: # Then try to use the value of the resource attribute k8s.pod.uid
+            - from: resource_attribute
+              name: k8s.pod.uid
+          - sources: # If neither of those work, use the request's connection to get the pod IP.
+            - from: connection
+
+      # NewRelic wants to have cumulative sums shipped as monotonic, delta sums
+      cumulativetodelta:
+
+      transform/newrelic_trace:
+        trace_statements:
+        - context: span
+          statements:
+          - truncate_all(attributes, 4095)
+          - truncate_all(resource.attributes, 4095)
+
+      transform/newrelic_logs:
+        log_statements:
+        - context: log
+          statements:
+          - truncate_all(attributes, 4095)
+          - truncate_all(resource.attributes, 4095)
+
+    service:
+      pipelines:
+
+        metrics/infra:
+          receivers: [kubeletstats, hostmetrics, hostmetrics/disk]
+          processors: [memory_limiter, k8sattributes, batch]
+          exporters: [prometheus]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector-config-cluster
+  namespace: telemetry
+data:
+  collector-config.yaml: |
+    receivers:
+      k8s_cluster:
+        auth_type: serviceAccount
+        node_conditions_to_report:
+          - Ready
+          - MemoryPressure
+        allocatable_types_to_report:
+          - cpu
+          - memory
+
+      # prometheus:
+        # config:
+          # scrape_configs:
+            # - job_name: 'kubernetes-apiservers'
+            #   kubernetes_sd_configs:
+            #   - role: endpoints
+            #   scheme: https
+            #   tls_config:
+            #     ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            #     insecure_skip_verify: true
+            #   bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            #   relabel_configs:
+            #   - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            #     action: keep
+            #     regex: default;kubernetes;https
+                
+            # - job_name: 'kubernetes-nodes'
+            #   scheme: https
+            #   tls_config:
+            #     ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            #     insecure_skip_verify: true
+            #   bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            #   kubernetes_sd_configs:
+            #   - role: node
+            #   relabel_configs:
+            #   - action: labelmap
+            #     regex: __meta_kubernetes_node_label_(.+)
+            #   - target_label: __address__
+            #     replacement: kubernetes.default.svc:443
+            #   - source_labels: [__meta_kubernetes_node_name]
+            #     regex: (.+)
+            #     target_label: __metrics_path__
+            #     replacement: /api/v1/nodes/$${1}/proxy/metrics
+                
+            # - job_name: 'kubernetes-pods'
+            #   kubernetes_sd_configs:
+            #   - role: pod
+            #   relabel_configs:
+            #   - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            #     action: keep
+            #     regex: true
+            #   - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            #     action: replace
+            #     target_label: __metrics_path__
+            #     regex: (.+)
+            #   - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            #     action: replace
+            #     regex: ([^:]+)(?::\d+)?;(\d+)
+            #     replacement: $${1}:$${2}
+            #     target_label: __address__
+            #   - action: labelmap
+            #     regex: __meta_kubernetes_pod_label_(.+)
+            #   - source_labels: [__meta_kubernetes_namespace]
+            #     action: replace
+            #     target_label: kubernetes_namespace
+            #   - source_labels: [__meta_kubernetes_pod_name]
+            #     action: replace
+            #     target_label: kubernetes_pod_name
+                
+            # - job_name: 'kube-state-metrics'
+            #   kubernetes_sd_configs:
+            #   - role: endpoints
+            #   relabel_configs:
+            #   - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+            #     action: keep
+            #     regex: kube-state-metrics
+            #   - action: labelmap
+            #     regex: __meta_kubernetes_service_label_(.+)
+
+    exporters:
+
+      otlphttp/loki:
+        endpoint: "http://loki:3100/otlp"
+        tls:
+          insecure: true
+
+      prometheus:
+        endpoint: '0.0.0.0:8889'
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    processors:
+      batch:
+      memory_limiter:
+        limit_mib: 100
+        spike_limit_mib: 50
+        check_interval: 5s
+      resource:
+        attributes:
+          - action: insert
+            key: k8s.cluster.name
+            value: local-k8s-cluster
+
+    service:
+      pipelines:
+        metrics/cluster:
+          receivers: [k8s_cluster]
+          processors: [resource, memory_limiter, batch]
+          exporters: [prometheus]
+
+        logs/cluster:
+          receivers: [k8s_cluster]
+          processors: [resource, memory_limiter, batch]
+          exporters: [otlphttp/loki]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: telemetry
+data:
+  loki-config.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+
+    common:
+      path_prefix: /data/loki
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+        instance_addr: 0.0.0.0
+
+    schema_config:
+      configs:
+      - from: 2020-05-15
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+    storage_config:
+      tsdb_shipper:
+        active_index_directory: /data/loki/index
+        cache_location: /data/loki/index_cache
+      filesystem:
+        directory: /data/loki/chunks
+
+    limits_config:
+      reject_old_samples: true
+      reject_old_samples_max_age: 1h
+      allow_structured_metadata: true
+      volume_enabled: true
+      retention_period: 48h
+      # Allow high cardinality labels for better querying
+      max_label_names_per_series: 200
+      max_global_streams_per_user: 10000
+      max_entries_limit_per_query: 10000
+
+    ruler:
+      alertmanager_url: http://alertmanager:9093
+      storage:
+        type: local
+        local:
+          directory: /data/loki/rules
+
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+      chunk_idle_period: 5m
+      chunk_block_size: 262144
+      chunk_retain_period: 1m
+      wal:
+        enabled: false
+        dir: /data/loki/wal
+
+    frontend:
+      compress_responses: false
+
+    compactor:
+      working_directory: /data/loki/compactor
+      
+    pattern_ingester:
+      enabled: false
+
+    # memberlist:
+    #   join_members:
+    #     - loki:7946
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: telemetry
+data:
+  prometheus.yaml: |
+    global:
+      scrape_interval:     60s
+      evaluation_interval: 10s
+
+    scrape_configs:
+    - job_name: 'otel-collector-apps'
+      scrape_interval:     1s
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: otel-collector-apps
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: instance
+        
+    - job_name: 'otel-collector-infra'
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: otel-collector-infra
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: instance
+        
+    - job_name: 'otel-collector-cluster'
+      track_timestamps_staleness: true
+      static_configs:
+        - targets: [ 'otel-collector-cluster:8889' ]
+
+    otlp:
+      # these OTLP resource attributes will be promoted to Prometheus labels
+      # to enable querying on them
+      promote_resource_attributes:
+        - service.instance.id
+        - service.name
+        - service.namespace
+        - service.version
+        - cloud.availability_zone
+        - cloud.region
+        - container.name
+        - deployment.environment
+        - deployment.environment.name
+
+    storage:
+      tsdb:
+        out_of_order_time_window: 30m
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: telemetry
+data:
+  tempo.yaml: |
+    stream_over_http_enabled: true
+    server:
+      http_listen_port: 3200
+      log_level: info
+
+    query_frontend:
+      search:
+        query_backend_after: 15m
+        query_ingesters_until: 30m
+        duration_slo: 5s
+        throughput_bytes_slo: 1.073741824e+09
+        metadata_slo:
+          duration_slo: 5s
+          throughput_bytes_slo: 1.073741824e+09
+      trace_by_id:
+        duration_slo: 5s
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:14317"
+
+    ingester:
+      lifecycler:
+        ring:
+          replication_factor: 1
+
+      max_block_bytes: 10000000    # default is 524288000 = 500MB 
+      max_block_duration: 15m      # cut the headblock when this much time passes. 
+      complete_block_timeout: 30m  # after this time, completed blocks will be removed from ingester's RAM
+      flush_all_on_shutdown: true
+
+    compactor:
+      compaction:
+        block_retention: 48h       # overall Tempo trace retention of 2 days
+
+    # metrics_generator:
+    #   registry:
+    #     external_labels:
+    #       source: tempo
+    #       cluster: kubernetes
+    #   storage:
+    #     path: /var/tempo/generator/wal
+    #     remote_write:
+    #       - url: http://prometheus:9090/api/v1/write
+    #         send_exemplars: true
+    #   traces_storage:
+    #     path: /var/tempo/generator/traces
+
+    storage:
+      trace:
+        backend: local                     # backend configuration to use
+        wal:
+          path: /var/tempo/wal             # where to store the wal locally
+        local:
+          path: /var/tempo/blocks
+
+    overrides:
+      ingestion_rate_limit_bytes: 2000000
+      ingestion_burst_size_bytes: 4000000

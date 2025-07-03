@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: telemetry
+spec:
+  selector:
+    app: tempo
+  ports:
+  - name: tempo
+    port: 3200
+    targetPort: 3200
+  - name: otlp-grpc
+    port: 14317
+    targetPort: 14317
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: telemetry
+spec:
+  selector:
+    app: loki
+  ports:
+  - name: loki
+    port: 3100
+    targetPort: 3100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-apps
+  namespace: telemetry
+spec:
+  selector:
+    app: otel-collector-apps
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: telemetry
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - name: prometheus
+    port: 9090
+    targetPort: 9090
