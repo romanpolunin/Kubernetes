@@ -54,7 +54,7 @@ multipass transfer ./kub-control-01/install-k8s-control-plane-primary.sh kub-con
 multipass exec kub-control-01 -- `
     env HOST_IP=$HostIP `
     env KUB_CONTROL_PLANE_LB=$KUB_CONTROL_PLANE_LB `
-    env LOCAL_REGISTRY_HOST=$HOST_IP `
+    env LOCAL_REGISTRY_HOST=$HostIP `
     env LOCAL_REGISTRY_PORT=5001 `
     ./install-k8s-control-plane-primary.sh
 
@@ -112,7 +112,7 @@ multipass exec kub-control-02 -- `
     env KUB_CERT_KEY=$KUB_CERT_KEY `
     env KUB_JOIN_TOKEN=$KUB_JOIN_TOKEN `
     env KUB_CERT_HASH=$KUB_CERT_HASH `
-    env LOCAL_REGISTRY_HOST=$HOST_IP `
+    env LOCAL_REGISTRY_HOST=$HostIP `
     env LOCAL_REGISTRY_PORT=5001 `
     ./install-k8s-control-plane-secondary.sh
 
