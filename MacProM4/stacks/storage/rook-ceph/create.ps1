@@ -36,7 +36,7 @@ helm upgrade --install --namespace rook-ceph `
   rook-ceph-cluster rook-release/rook-ceph-cluster -f helm-values-cluster.yaml
 
 kubectl wait --for=condition=ready cephcluster -n rook-ceph --all=true --timeout=600s
-kubectl wait --for=condition=ready pod -n rook-ceph --all=true --timeout=600s
+kubectl wait --for=condition=ready pod -n rook-ceph --all=true --field-selector=status.phase!=Succeeded --timeout=600s
 
 # retrieve dashboard admin user password
 kubectl -n rook-ceph get secret rook-ceph-dashboard-password -o jsonpath="{['data']['password']}" `
